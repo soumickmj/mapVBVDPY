@@ -9,7 +9,7 @@ def read_twix_hdr(fid):
     rstraj = []
 
     prot = {}
-    for b in range(nbuffers):
+    for _ in range(nbuffers):
         # now read string up to null termination
         bufname = fid.read(10).decode(errors='ignore')
         bufname = re.findall('^\w*', bufname)
@@ -57,7 +57,7 @@ def parse_xprot(buffer):
         name = tokens[m][0]
 
         if not name[0].isalpha():
-            name = 'x' + name
+            name = f'x{name}'
 
         value = tokens[m][-1]
         value = value.strip().replace('"', '')
@@ -72,8 +72,6 @@ def parse_xprot(buffer):
 
 
 def parse_ascconv(buffer):
-    mrprot = {}
-
     vararray = re.findall('(?P<name>\S*)\s*=\s*(?P<value>\S*)', buffer)
     tmp = {}
     for name, value in vararray:
@@ -82,11 +80,11 @@ def parse_ascconv(buffer):
         elif value.isnumeric():
             value = float(value)
 
-        if not '[' in name:
+        if '[' not in name:
             continue
 
         p_name = name.split('.')[0].split('[')[0]
-        if not p_name in tmp.keys():
+        if p_name not in tmp:
             tmp[p_name] = {}
         ix = int(name.split('[')[1].split(']')[0])
         if ix not in tmp[p_name].keys():
@@ -94,9 +92,7 @@ def parse_ascconv(buffer):
         c_name = name.split('.')[-1]
         tmp[p_name][ix][c_name] = value
 
-    mrprot[list(tmp.keys())[0]] = tmp[list(tmp.keys())[0]]
-
-    return mrprot
+    return {list(tmp.keys())[0]: tmp[list(tmp.keys())[0]]}
 
         # v = re.findall('(?P<name>\w*)\[(?P<ix>[0-9]*)\]|(?P<name>\w*)', name)
         #

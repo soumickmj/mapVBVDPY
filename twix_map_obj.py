@@ -72,10 +72,7 @@ class twix_map_obj:
         # self.skipLin = None
         # self.skipPar = None
 
-        if dataType == None:
-            self.dataType = 'image'
-        else:
-            self.dataType = dataType.lower()
+        self.dataType = 'image' if dataType is None else dataType.lower()
         self.filename = fname
         self.softwareVersion = version
 
@@ -90,7 +87,7 @@ class twix_map_obj:
         self.arg = {}
         self.setDefaultFlags()
         if arg != None:
-            self.arg.update(arg)
+            self.arg |= arg
 
         self.flagAverageDim[self.dataDims.index('Ave')] = self.arg['doAverage']
         self.flagAverageDim[self.dataDims.index('Rep')] = self.arg['averageReps']
@@ -148,15 +145,8 @@ class twix_map_obj:
 
 
     def __call__(self, *args, **kwargs):
-        if 'shape' in kwargs.keys():
-            shape = kwargs['shape']
-        else:
-            shape = None
-        if 'squeeze' in kwargs.keys():
-            bSqueeze = kwargs['squeeze']
-        else:
-            bSqueeze = False
-
+        shape = kwargs.get('shape')
+        bSqueeze = kwargs.get('squeeze', False)
         selRange, selRangeSz, outSize = self.calcRange(bSqueeze, shape=shape)
 
         # calculate page table (virtual to physical addresses)
@@ -211,7 +201,7 @@ class twix_map_obj:
         # make sure that indices fit inside selection range
         for k in range(2, len(selRange)):
             tmp = cIx[k - 2,:]
-            for L in range(0, len(selRange[k])):
+            for L in range(len(selRange[k])):
                 cIx[k - 2, tmp==selRange[k][L]] = L
 
         sz = selRangeSz[2:]
@@ -227,8 +217,7 @@ class twix_map_obj:
         ixToTarg = ixToTarg[ix]
         ixToRaw = ixToRaw[ix]
 
-        varargout = self.readData(mem,ixToTarg,ixToRaw,selRange,selRangeSz,outSize)
-        return varargout
+        return self.readData(mem,ixToTarg,ixToRaw,selRange,selRangeSz,outSize)
 
     def calcIndices(self):
         # calculate indices to target & source(raw)
@@ -253,30 +242,19 @@ class twix_map_obj:
         for i in range(len(sz)-2, -1, -1):
             ix = args[i]
             ndx = (sz[i] * ndx) + ix - 1
-        # ndx = ndx + 1
-        ndx = ndx.astype(np.int)
-        return ndx
+        return ndx.astype(np.int)
 
     def calcRange(self, bSqueeze=False, shape=None):
-        selRange = [[0] for i in range((len(self.dataSize)))]
+        selRange = [[0] for _ in range((len(self.dataSize)))]
         outSize = np.ones(len(self.dataSize))
 
-        if shape==None:
+        if shape is None:
             for k in range(len(self.dataSize)):
                 selRange[k] = list(range(self.dataSize[k]))
-            if not bSqueeze:
-                outSize = self.dataSize
-            else:
-                outSize = self.sqzSize
-
+            outSize = self.sqzSize if bSqueeze else self.dataSize
         else:
             for k in range(len(shape)):
-                if not bSqueeze:
-                    cDim = k # nothing to do
-                else:
-                    # we need to rearrange selRange from squeezed
-                    # to original order
-                    cDim = self.dataDims.index(self.sqzDims[k])
+                cDim = self.dataDims.index(self.sqzDims[k]) if bSqueeze else k
                 if shape[k] == -1:
                     if k < len(shape) - 1:
                         selRange[cDim] = list(range(int(self.dataSize[cDim])))
@@ -289,12 +267,8 @@ class twix_map_obj:
                 elif isinstance(shape[k], int):
                     selRange[cDim] = [shape[k]-1]
                 else:
-                    raise ValueError('Unknown type {} in shape'.format(type(shape[k])))
-                if isinstance(selRange[cDim], list):
-                    outSize[k] = len(selRange[cDim])
-                else:
-                    outSize[k] = 1
-
+                    raise ValueError(f'Unknown type {type(shape[k])} in shape')
+                outSize[k] = len(selRange[cDim]) if isinstance(selRange[cDim], list) else 1
             for k in range(len(selRange)):
                 if np.array(selRange[k]).max() > self.dataSize[k]:
                     raise ValueError('selection out of range')
@@ -327,12 +301,13 @@ class twix_map_obj:
         self.arg['doRawDataCorrect'] = False
         self.flagAverageDim = [False] * 16
 
-        if (self.dataType == 'image') or (self.dataType == 'phasecor') or (self.dataType == 'phasestab'):
-            self.arg['skipToFirstLine'] = False
-        else:
-            self.arg['skipToFirstLine'] = True
+        self.arg['skipToFirstLine'] = self.dataType not in [
+            'image',
+            'phasecor',
+            'phasestab',
+        ]
 
-        if not 'rawDataCorrectionFactors' in self.arg.keys():
+        if 'rawDataCorrectionFactors' not in self.arg.keys():
             self.arg['rawDataCorrectionFactors'] = []
 
     def readMDH(self, mdh, filePos):
@@ -348,7 +323,7 @@ class twix_map_obj:
         The 1st example always hits the timestamps.
         """
 
-        if (len(mdh) == 0) or (isinstance(mdh, dict) is False):
+        if len(mdh) == 0 or not isinstance(mdh, dict):
             return
 
         self.NAcq = filePos.size
@@ -396,25 +371,8 @@ class twix_map_obj:
         self.memPos = filePos
 
     def tryAndFixLastMdh(self):
-        eofWarning = [__name__ + ' :UnxpctdEOF'] # We have it inside this.readData()
-        raise Warning('off ' + eofWarning) # silence warnings for read...
-
-        isLastAcqGood = False
-        cnt = 0
-
-        while (~isLastAcqGood and self.NAcq) > 0 and (cnt < 100):
-            raise Warning('foo:bar' + ' baz')  # make sure that lastwarn() does not return eofWarning
-
-            try:
-                self.clean()
-                self.unsorted(self.NAcq)
-                isLastAcqGood = True
-            except:
-                self.isBrokenFile = True
-                self.NAcq = self.NAcq - 1
-
-            cnt = cnt + 1
-            raise Warning('on ' + eofWarning)
+        eofWarning = [f'{__name__} :UnxpctdEOF']
+        raise Warning(f'off {eofWarning}')
 
     def clean(self):
         if self.NAcq == 0:
@@ -436,11 +394,10 @@ class twix_map_obj:
 
         for f in fields:
             if isinstance(self.__getattribute__(f), np.float):
-                if 1 > nack:
+                if nack < 1:
                     self.__setattr__(f, self.__getattribute__(f)[:idx])
-            else:
-                if self.__getattribute__(f).shape[0] > nack: # rarely
-                    self.__setattr__(f, self.__getattribute__(f)[:idx]) # 1st dim: samples,  2nd dim acquisitions
+            elif self.__getattribute__(f).shape[0] > nack: # rarely
+                self.__setattr__(f, self.__getattribute__(f)[:idx]) # 1st dim: samples,  2nd dim acquisitions
 
         self.NLin = max(self.Lin)
         self.NPar = max(self.Par)
@@ -464,13 +421,9 @@ class twix_map_obj:
         if not isinstance(self.NCha, np.float):
             self.NCha = self.NCha[0]
 
-        if self.dataType == 'refscan':
-            # pehses: check for lines with 'negative' line/partition numbers
-            # this can happen when the reference scan line/partition range
-            # exceeds the one of the actual imaging scan
-            if self.NLin > 65500: # uint overflow check
-                self.Lin = ((self.Lin + (65536 - min(self.Lin[self.Lin > 65500], 0))) % 65536) + 1
-                self.NLin = max(self.Lin)
+        if self.dataType == 'refscan' and self.NLin > 65500:
+            self.Lin = ((self.Lin + (65536 - min(self.Lin[self.Lin > 65500], 0))) % 65536) + 1
+            self.NLin = max(self.Lin)
 
         # to reduce the matrix sizes of non-image scans, the size
         # of the refscan_obj()-matrix is reduced to the area of the
